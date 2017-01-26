@@ -36,14 +36,46 @@ def rutube_get(function, search = None, an_id = None, page = 1, per_page = 20):
     r = requests.get(url, params = params)
 
     myLog(r.url)
+    myLog(r.status_code)
+
+    ret = json.loads(r.content)
 
     if (r.status_code == 200):
         if search:
             myLog(r.content)
-        ret = json.loads(r.content)
+    elif (r.status_code == 404):
+        status_msg(ret)
     else:
         ret = None
     return ret
+
+##
+## @brief      show status message with error / warning
+##
+## @param      ret   content json parsed
+## @param      lang  The language code
+## @param      time  The time the status is shown in ms
+##
+def status_msg(ret, lang = "rus", time = 7500):
+    title = ""
+    msg   = ""
+
+    if 'detail' in ret:
+        myLog("found 'detail'")
+        if lang:
+            for ln in ret['detail']['languages']:
+                myLog("Found " + ln['lang'])
+                if (lang == ln['lang']):
+                    title = ln['title']
+                    msg   = ln['description']
+                    break
+
+        if not title:
+            title = ret['detail']['languages'][0]['title']
+            msg   = ret['detail']['languages'][0]['description']
+
+    xbmcgui.Dialog().notification(title, msg, icon = xbmcgui.NOTIFICATION_WARNING, time = 7500)
+
 
 def rutube_simple_get(url):
     ret = {}
@@ -165,14 +197,10 @@ def list_searches():
 def list_videos(search = None):
     return None
 
-def list_tv(search = None):
-    tvShows = []
+def list_tv():
 
     # Get video categories
-    if search is None:
-        tvShows = rutube_get("metainfo/tv")
-    else:
-        tvShows = rutube_get("search/video", search = search)
+    tvShows = rutube_get("metainfo/tv")
 
     # Create a list for our items.
     listing = []
@@ -186,8 +214,6 @@ def list_tv(search = None):
 
         if "picture" in show:
             image = show["picture"]
-        elif "image" in show:
-            image = show["image"]
 
         if "description" in show:
             plot = show["description"]
@@ -212,6 +238,13 @@ def list_tv(search = None):
     xbmcplugin.addSortMethod(addon_handle, xbmcplugin.SORT_METHOD_LABEL_IGNORE_THE)
     # Finish creating a virtual folder.
     xbmcplugin.endOfDirectory(addon_handle)
+
+def list_serial(sid):
+    serials = rutube_get("metainfo/tv", an_id = sid)
+    listing = []
+
+    for serial in serials['results']:
+        myLog(serial['name'])
 
 
 def play_video(vid):
@@ -243,7 +276,10 @@ def play_video(vid):
     list_item.setInfo('video', {'Title': title, 'Genre': genre})
 
     resp = rutube_get("play/options", an_id = vid)
-    xbmc.Player().play(resp["video_balancer"]["m3u8"], list_item)
+
+    if isinstance(resp, dict):
+        if "video_balancer" in resp:
+            xbmc.Player().play(resp["video_balancer"]["m3u8"], list_item)
 
 def search_tags():
     query  = searchDlg("Search Tags")
@@ -254,8 +290,22 @@ def search_tags():
 
     list_categories(search)
 
+def search_video():
+    query = searchDlg("Search Video")
+    search = None
+
+    if query:
+        search = query
+        print "Searching for " + search
+
+    list_tv(search)
+
+
 def stupid():
-    play_video(6089719)
+    query = searchDlg("Type Video ID")
+
+    if query:
+        play_video(int(query))
 
 
 ##
@@ -282,16 +332,17 @@ def router(paramstring):
                 search = params['search']
             list_videos(search)
         elif params['action'] == 'tv':
-            search = None
-            if 'search' in params:
-                search = params['search']
-            list_tv(search)
+            list_tv()
         elif params['action'] == 'searchtagsform':
             search_tags()
+        elif params['action'] == 'searchvideosform':
+            search_video()
         elif params['action'] == 'searchmenu':
             list_searches()
         elif params['action'] == 'stupid':
             stupid()
+        elif params['action'] == 'listtv':
+            list_serial(params['tvid'])
         else:
             create_root()
     else:
